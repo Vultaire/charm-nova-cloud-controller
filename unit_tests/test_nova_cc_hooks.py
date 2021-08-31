@@ -441,6 +441,7 @@ class NovaCCHooksTests(CharmTestCase):
         self.assertFalse(
             hooks._goal_state_achieved_for_relid('aservice', None))
 
+    @patch('hooks.nova_cc_hooks._get_matching_apps')
     @patch('charmhelpers.contrib.openstack.utils.get_hostname')
     @patch('charmhelpers.core.unitdata.Storage.set')
     @patch('hooks.nova_cc_utils.add_authorized_key_if_doesnt_exist')
@@ -454,7 +455,8 @@ class NovaCCHooksTests(CharmTestCase):
             mock_ssh_compute_add_known_hosts,
             mock_add_authorized_key_if_doesnt_exist,
             mock_db_set,
-            mock_get_hostname):
+            mock_get_hostname,
+            mock__get_matching_apps):
         mock_get_hostname.return_value = None
         mock_remote_service_from_unit.return_value = 'aservice'
         mock__goal_state_achieved_for_relid.return_value = True
@@ -465,6 +467,7 @@ class NovaCCHooksTests(CharmTestCase):
             'k_h_0', 'k_h_1', 'k_h_2']
         self.ssh_authorized_keys_lines.return_value = [
             'auth_0', 'auth_1', 'auth_2']
+        mock__get_matching_apps.return_value = ['app1']
         hooks.update_ssh_keys_and_notify_compute_units()
         mock_db_set.assert_called_once_with('hostset-10.0.0.1', ['10.0.0.1'])
         mock_ssh_compute_add_known_hosts.assert_called_once_with(
@@ -492,6 +495,7 @@ class NovaCCHooksTests(CharmTestCase):
         mock__goal_state_achieved_for_relid.assert_called_once_with(
             'cloud-compute', None)
 
+    @patch('hooks.nova_cc_hooks._get_matching_apps')
     @patch('charmhelpers.contrib.openstack.utils.get_hostname')
     @patch('charmhelpers.core.unitdata.Storage.set')
     @patch('hooks.nova_cc_utils.add_authorized_key_if_doesnt_exist')
@@ -505,7 +509,8 @@ class NovaCCHooksTests(CharmTestCase):
             mock_ssh_compute_add_known_hosts,
             mock_add_authorized_key_if_doesnt_exist,
             mock_db_set,
-            mock_get_hostname):
+            mock_get_hostname,
+            mock__get_matching_apps):
         mock_get_hostname.return_value = None
         mock_remote_service_from_unit.return_value = 'aservice'
         mock__goal_state_achieved_for_relid.return_value = True
@@ -516,6 +521,7 @@ class NovaCCHooksTests(CharmTestCase):
             'k_h_0', 'k_h_1', 'k_h_2']
         self.ssh_authorized_keys_lines.return_value = [
             'auth_0', 'auth_1', 'auth_2']
+        mock__get_matching_apps.return_value = ['app1']
         hooks.update_ssh_keys_and_notify_compute_units()
         mock_db_set.assert_called_once_with('hostset-10.0.0.1', ['10.0.0.1'])
         mock_ssh_compute_add_known_hosts.assert_called_once_with(
@@ -542,6 +548,117 @@ class NovaCCHooksTests(CharmTestCase):
         self.relation_set.assert_has_calls(expected_relations, any_order=True)
         mock__goal_state_achieved_for_relid.assert_called_once_with(
             'cloud-compute', None)
+
+    @patch('hooks.nova_cc_hooks._get_matching_apps')
+    @patch('charmhelpers.contrib.openstack.utils.get_hostname')
+    @patch('charmhelpers.core.unitdata.Storage.set')
+    @patch('hooks.nova_cc_utils.add_authorized_key_if_doesnt_exist')
+    @patch('hooks.nova_cc_utils.ssh_compute_add_known_hosts')
+    @patch('hooks.nova_cc_hooks._goal_state_achieved_for_relid')
+    @patch('hooks.nova_cc_utils.remote_service_from_unit')
+    def test_update_ssh_keys_and_notify_compute_units_ssh_migration_multi_app(
+            self,
+            mock_remote_service_from_unit,
+            mock__goal_state_achieved_for_relid,
+            mock_ssh_compute_add_known_hosts,
+            mock_add_authorized_key_if_doesnt_exist,
+            mock_db_set,
+            mock_get_hostname,
+            mock__get_matching_apps):
+        mock_get_hostname.return_value = None
+        mock_remote_service_from_unit.return_value = 'aservice'
+        mock__goal_state_achieved_for_relid.return_value = True
+        self.test_relation.set({
+            'migration_auth_type': 'ssh', 'ssh_public_key': 'fookey',
+            'private-address': '10.0.0.1', 'region': 'RegionOne'})
+        per_app_known_hosts = {
+            'app1': ['k_h_0', 'k_h_1', 'k_h_2'],
+            'app2': ['k_h_3', 'k_h_4', 'k_h_5'],
+            'app3': ['k_h_6', 'k_h_7', 'k_h_8'],
+        }
+        per_app_authorized_keys = {
+            'app1': ['auth_0', 'auth_1', 'auth_2'],
+            'app2': ['auth_3', 'auth_4', 'auth_5'],
+            'app3': ['auth_6', 'auth_7', 'auth_8'],
+        }
+        def return_from_dict(d):
+            def inner(key, *_args, **_kwargs):
+                return d[key]
+            return inner
+        self.ssh_known_hosts_lines.side_effect = \
+            return_from_dict(per_app_known_hosts)
+        self.ssh_authorized_keys_lines.side_effect = \
+            return_from_dict(per_app_authorized_keys)
+        mock__get_matching_apps.return_value = ['app1', 'app3']
+        hooks.update_ssh_keys_and_notify_compute_units()
+        mock_db_set.assert_called_once_with('hostset-10.0.0.1', ['10.0.0.1'])
+        mock_ssh_compute_add_known_hosts.assert_called_once_with(
+            'aservice', ['10.0.0.1'], user=None)
+        mock_add_authorized_key_if_doesnt_exist.assert_called_once_with(
+            'fookey', 'aservice', '10.0.0.1', user=None)
+        expected_relations = [
+            call(relation_settings={'authorized_keys_0': 'auth_0'},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_1': 'auth_1'},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_2': 'auth_2'},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_3': 'auth_6'},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_4': 'auth_7'},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_5': 'auth_8'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_0': 'k_h_0'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_1': 'k_h_1'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_2': 'k_h_2'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_3': 'k_h_6'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_4': 'k_h_7'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_5': 'k_h_8'},
+                 relation_id=None),
+            call(relation_settings={'known_hosts_max_index': 6},
+                 relation_id=None),
+            call(relation_settings={'authorized_keys_max_index': 6},
+                 relation_id=None)]
+        self.relation_set.assert_has_calls(expected_relations, any_order=True)
+        mock__goal_state_achieved_for_relid.assert_called_once_with(
+            'cloud-compute', None)
+
+    def test__get_matching_apps(self):
+        self.test_config.set('migration-ssh-auth-sharing', '')
+        matches = hooks._get_matching_apps('app1')
+        self.assertEqual(set(matches), set(['app1']))
+
+        self.test_config.set('migration-ssh-auth-sharing', 'app1,app2')
+        matches = hooks._get_matching_apps('app1')
+        self.assertEqual(set(matches), set(['app1', 'app2']))
+
+        self.test_config.set('migration-ssh-auth-sharing',
+                             'app1,app3;app2,app4')
+        matches = hooks._get_matching_apps('app2')
+        self.assertEqual(set(matches), set(['app2', 'app4']))
+
+        self.test_config.set('migration-ssh-auth-sharing', 'app1,app2')
+        matches = hooks._get_matching_apps('app3')
+        self.assertEqual(set(matches), set(['app3']))
+
+        with patch('os.listdir') as listdir_mock:
+            # Mocking listdir of NOVA_SSH_DIR
+            listdir_mock.return_value = [
+                'app1', 'app1_nova',
+                'app2', 'app2_nova',
+                'app3', 'app3_nova',
+                'app4', 'app4_nova',
+            ]
+            self.test_config.set('migration-ssh-auth-sharing', '*')
+            matches = hooks._get_matching_apps('app1')
+            self.assertEqual(set(matches),
+                             set(['app1', 'app2', 'app3', 'app4']))
 
     @patch('hooks.nova_cc_utils.is_cellv2_init_ready')
     @patch('hooks.nova_cc_utils.is_db_initialised')

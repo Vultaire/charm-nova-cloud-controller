@@ -686,3 +686,12 @@ options:
       cloud utilization.
       .
       Note: only effective from Pike onward
+  migration-ssh-auth-sharing:
+    type: string
+    default:
+    description: |
+      Defines which apps related via the cloud-compute relationship should
+      share their units' SSH keys with each other for the purpose of enabling
+      migrations.  Each set is defined as a comma-separated list, e.g.
+      "app1,app2".  For multiple sets, separate each set by a semicolon.  To
+      enable SSH key sharing across all apps, specify "*".

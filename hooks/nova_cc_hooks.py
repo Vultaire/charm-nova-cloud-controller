@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import os
 import shutil
 import subprocess
@@ -944,13 +945,44 @@ def _set_hosts_and_keys_on_relation(remote_service, rid=None, user=None):
         authorized_prefix = "authorized_keys"
         authorized_keys_max_key = "authorized_keys_max_index"
 
+    matching_apps = _get_matching_apps(remote_service)
+
     _batch_write_ssh_on_relation(
         rid, known_hosts_prefix, known_hosts_max_key,
-        ncc_utils.ssh_known_hosts_lines(remote_service, user=user))
+        itertools.chain.from_iterable(
+            ncc_utils.ssh_known_hosts_lines(app, user=user)
+            for app in matching_apps))
 
     _batch_write_ssh_on_relation(
         rid, authorized_prefix, authorized_keys_max_key,
-        ncc_utils.ssh_authorized_keys_lines(remote_service, user=user))
+        itertools.chain.from_iterable(
+            ncc_utils.ssh_authorized_keys_lines(app, user=user)
+            for app in matching_apps))
+
+
+def _get_matching_apps(remote_service):
+    sharing_cfg = hookenv.config('migration-ssh-auth-sharing')
+    if sharing_cfg == '*':
+        matching_apps = _get_all_cloud_compute_apps()
+    else:
+        matching_apps = _get_matching_cloud_compute_apps(
+            remote_service, sharing_cfg)
+    return matching_apps
+
+
+def _get_all_cloud_compute_apps():
+    return set(dir_.split('_')[0]
+               for dir_ in os.listdir(ncc_utils.NOVA_SSH_DIR))
+
+
+def _get_matching_cloud_compute_apps(remote_service, sharing_cfg):
+    sharing_groups = [group.split(',') for group in sharing_cfg.split(';')]
+    matching_groups = [group for group in sharing_groups
+                       if remote_service in group]
+    if matching_groups:
+        return set(itertools.chain.from_iterable(matching_groups))
+    else:
+        return [remote_service]
 
 
 def _batch_write_ssh_on_relation(rid, prefix, max_index, _iter):
